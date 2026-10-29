@@ -1,0 +1,38 @@
+CONFIGURAR EL ACCESO (REGISTRO, LOGIN Y RECUPERACIÓN DE CONTRASEÑA)
+
+La app usa Supabase Auth (gratis para empezar). Supabase guarda las contraseñas cifradas (bcrypt) y envía los correos de confirmación y restablecimiento. La app nunca guarda contraseñas.
+
+1) CREAR EL PROYECTO
+   - Entra a supabase.com > New project. Anota la contraseña de la base de datos (no se usa en la app).
+2) COPIAR LAS CLAVES
+   - Project Settings > API:
+       Project URL            -> supabaseUrl
+       anon public (clave)    -> supabaseAnonKey
+   - NUNCA uses la clave "service_role" en la app: es secreta.
+3) EDITAR auth-config.js (en la carpeta de la app)
+       window.EDUSCAN_AUTH = { supabaseUrl: 'https://TU-PROYECTO.supabase.co', supabaseAnonKey: 'TU_CLAVE_ANON' };
+4) PERMITIR LA DIRECCIÓN DE TU APP (indispensable para los enlaces del correo)
+   - Authentication > URL Configuration:
+       Site URL:       https://TU-DOMINIO/            (la dirección https donde publicaste la app)
+       Redirect URLs:  https://TU-DOMINIO/  y  https://TU-DOMINIO/index.html
+   - Sin esto, el enlace de "Olvidé mi contraseña" no regresa a la app.
+5) REGLAS DE CONTRASEÑA Y CORREO
+   - Authentication > Sign In / Providers > Email: deja activo "Confirm email" (recomendado).
+   - Longitud mínima: 8 (Authentication > Sign In / Providers > Password requirements, si tu panel lo ofrece).
+   - Authentication > Email Templates: puedes traducir los textos al español.
+6) CORREOS EN PRODUCCIÓN
+   - El correo incluido en Supabase es solo para pruebas y tiene límites muy bajos. Para uso real configura un SMTP propio en Authentication > SMTP Settings (por ejemplo Resend, Brevo o tu servidor de la escuela).
+7) PUBLICAR de nuevo la carpeta (ver INSTALAR_IPHONE.txt). Si ya tenías la app instalada, ábrela con internet y ciérrala una vez para que cargue auth-config.js nuevo.
+
+CÓMO FUNCIONA
+- Sin sesión iniciada solo se ve la pantalla de acceso; las pantallas de la app no se muestran y la navegación está bloqueada.
+- Registro: correo + contraseña (mín. 8, letra y número) -> correo de confirmación -> iniciar sesión.
+- ¿Olvidaste tu contraseña?: envía un enlace; al abrirlo la app pide la contraseña nueva.
+- Cerrar sesión: botón en el encabezado y en la pestaña "Cuenta". Opcionalmente borra los datos locales de esa cuenta.
+- La sesión se renueva sola y funciona sin conexión (se valida de nuevo al volver el internet). Si la sesión fue revocada o caduca, se regresa al login.
+- Los datos de exámenes se guardan en el dispositivo y separados por cuenta (cada usuario ve solo los suyos). Los datos de la versión anterior se asignan a la primera cuenta que inicie sesión.
+- Límite local: tras 5 intentos fallidos el formulario espera 30 s (el servidor aplica además sus propios límites).
+
+LIMITACIONES HONESTAS
+- La protección de pantallas es del lado del navegador: impide usar la app sin cuenta, pero los datos viven en el dispositivo y no están cifrados en él. Para proteger información sensible entre dispositivos se necesitaría guardar los datos en el servidor (con Row Level Security), cosa que esta versión no hace.
+- Importar/exportar respaldos sigue siendo manual.
