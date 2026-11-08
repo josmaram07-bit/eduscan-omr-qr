@@ -82,6 +82,14 @@ html.locked header,html.locked .app{display:none!important}
 .cam-hint{position:absolute;left:12px;right:12px;top:max(10px,env(safe-area-inset-top));color:#fff;background:#000000a6;border-radius:12px;padding:8px 12px;font-size:13px;text-align:center}
 .cam-actions{display:flex;gap:12px;justify-content:center;padding:14px 16px max(16px,env(safe-area-inset-bottom));background:#000}.cam-actions button{min-width:140px;min-height:50px;font-size:16px}
 @media(max-width:540px){.cam-hint{font-size:12px}}
+.cam-box canvas#camOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.cam-guide.ok{border-color:#22c55e;border-style:solid;box-shadow:0 0 0 9999px #0000001f}
+.cam-chips{position:absolute;left:8px;right:8px;bottom:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;pointer-events:none}
+.cchip{background:#000b;color:#fff;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:650}.cchip.ok{background:#15803dd9}.cchip.bad{background:#7c2d12d9}
+.cam-count{position:absolute;inset:0;display:grid;place-items:center;font-size:min(36vw,190px);font-weight:900;color:#fff;text-shadow:0 4px 28px #000,0 0 6px #000;pointer-events:none}
+.cam-count.hidden{display:none}.cam-count.pop{animation:campop .45s ease-out}@keyframes campop{from{transform:scale(1.5);opacity:.3}to{transform:scale(1);opacity:1}}
+.cam-box.flash::after{content:"";position:absolute;inset:0;background:#fff;opacity:.85;animation:camflash .18s ease-out forwards;pointer-events:none}@keyframes camflash{to{opacity:0}}
+.cam-actions{flex-wrap:wrap;gap:8px}.cam-actions button{min-width:96px;min-height:46px;font-size:15px;padding:8px 12px}
 </style>
 <script>(function(){const __m={},__c={};function __r(n){n=n.split("/").pop().replace(/\.js$/,"");if(__c[n])return __c[n].exports;const m={exports:{}};__c[n]=m;__m[n](m,m.exports,__r);return m.exports}
 __m['QRErrorCorrectLevel']=function(module,exports,require){module.exports = {
@@ -1448,7 +1456,7 @@ const QRC=__r("index");window.qrcode=function(t,l){return new QRC(-1,3)};})();</
   <div class="card" style="margin-top:14px"><div class="subnav"><h3 style="margin:0;flex:1">Mis plantillas</h3><input id="tplSearch" placeholder="Buscar por nombre…" style="max-width:240px"></div><div id="versionRows" style="margin-top:12px"></div></div>
  </section>
 </div>
-<div id="camModal" class="cam-modal hidden" role="dialog" aria-modal="true" aria-label="Cámara para escanear la hoja"><div class="cam-box"><video id="camVideo" playsinline muted autoplay></video><div class="cam-guide"></div><div class="cam-hint">Encuadra la hoja completa: deben verse los 4 cuadros negros y el QR. Sostén quieto el teléfono y pulsa Capturar.</div></div><div class="cam-actions"><button id="camCancel" type="button" class="light">Cancelar</button><button id="camShot" type="button">📷 Capturar</button></div></div>
+<div id="camModal" class="cam-modal hidden" role="dialog" aria-modal="true" aria-label="Escaneo en vivo de la hoja"><div class="cam-box" id="camBox"><video id="camVideo" playsinline muted autoplay></video><canvas id="camOverlay"></canvas><div class="cam-guide" id="camGuide"></div><div class="cam-hint" id="camStatus" role="status" aria-live="polite">Apunta a la hoja: deben verse sus 4 cuadros negros y el QR.</div><div class="cam-chips" id="camChips"></div><div class="cam-count hidden" id="camCount"></div></div><div class="cam-actions"><button id="camCancel" type="button" class="light">Cancelar</button><button id="camAuto" type="button" class="light" aria-pressed="true">⏱️ Automático</button><button id="camSound" type="button" class="light" aria-label="Sonido">🔇</button><button id="camShot" type="button">📷 Capturar ahora</button></div></div>
 <script src="./auth-config.js"></script>
 <script>
 (function(){
@@ -1613,20 +1621,83 @@ function showScanResult(r){$('scanSummary').innerHTML=`<h2 style="font-size:32px
 $('simulateScan').addEventListener('click',()=>{const answers=Array.from({length:state.total},(_,i)=>{const o=LET.slice(0,state.layout.opts[fieldOf(i)]);return o[Math.floor(Math.random()*o.length)]});$('scanAnswers').value=answers.join(',');refreshGraded();toast('Se generaron respuestas aleatorias de demostración. Revisa antes de guardar.')});
 let currentScanImage=null,scanQrStudent='';
 let scanURL=null,camStream=null;
-function loadScanBlob(f){if(!f)return;$('scanStudent').disabled=false;$('scanStudent').value='';scanQrStudent='';$('gradedWrap').classList.add('hidden');$('scanOverlay').classList.add('hidden');currentScanImage=null;
+function loadScanBlob(f,force){if(!f)return;$('scanStudent').disabled=false;$('scanStudent').value='';scanQrStudent='';$('gradedWrap').classList.add('hidden');$('scanOverlay').classList.add('hidden');currentScanImage=null;
 if(scanURL)URL.revokeObjectURL(scanURL);scanURL=URL.createObjectURL(f);$('scanPreview').src=scanURL;$('scanPreview').classList.remove('hidden');$('detectStatus').textContent='Cargando imagen…';
-const img=new Image();img.onload=()=>{if(!img.naturalWidth){$('detectStatus').textContent='La imagen está vacía o dañada. Toma la foto de nuevo.';return}currentScanImage=img;const auto=$('autoDetect').checked;$('detectStatus').textContent=`Imagen cargada (${img.naturalWidth} × ${img.naturalHeight}).`+(auto?'':' Pulsa detectar para analizar.');if(auto)detectOMR()};
+const img=new Image();img.onload=()=>{if(!img.naturalWidth){$('detectStatus').textContent='La imagen está vacía o dañada. Toma la foto de nuevo.';return}currentScanImage=img;const auto=force||$('autoDetect').checked;$('detectStatus').textContent=`Imagen cargada (${img.naturalWidth} × ${img.naturalHeight}).`+(auto?'':' Pulsa detectar para analizar.');if(auto)detectOMR()};
 img.onerror=()=>{$('detectStatus').textContent='No se pudo leer la imagen. Si es una foto HEIC: Ajustes ▸ Cámara ▸ Formatos ▸ “Más compatible”, o usa “Cámara en vivo”.'};img.src=scanURL}
 ['scanImage','scanGallery'].forEach(id=>{const el=$(id);el.addEventListener('click',()=>{el.value=''});el.addEventListener('change',()=>loadScanBlob(el.files&&el.files[0]))});
 $('camPhoto').addEventListener('click',()=>$('scanImage').click());$('camGallery').addEventListener('click',()=>$('scanGallery').click());
+/* ===== Escaneo en vivo: reconoce marcas y QR, cuenta 1-2-3 y toma la foto verificada ===== */
+let lastQRWarp=null,camTimer=null,camAuto=true,camSound=false,camAC=null;
+function qrWarpKeep(f,W){lastQRWarp={f,W};return f}
+const CAM={prev:null,steady:0,qr:null,qrAt:0,qrOkAt:0,qrRot:0,qrSharp:0,count:null,lostAt:0,verifying:false,coolUntil:0,failUntil:0,failMsg:'',shownN:0,ms:0,log:[],cvS:document.createElement('canvas'),cvM:document.createElement('canvas'),cvV:document.createElement('canvas')};
+const camLog=e=>{CAM.log.push(e);if(CAM.log.length>80)CAM.log.shift();window.__camLog=CAM.log};
+function camBeep(f,ms){if(!camSound||!camAC)return;try{const o=camAC.createOscillator(),g=camAC.createGain();o.frequency.value=f;g.gain.value=.12;o.connect(g);g.connect(camAC.destination);o.start();o.stop(camAC.currentTime+ms/1000)}catch(e){}}
+function grayFromSource(src,sw,sh,maxSide,cv){const s=Math.min(1,maxSide/Math.max(sw,sh)),w=Math.round(sw*s),h=Math.round(sh*s);if(cv.width!==w)cv.width=w;if(cv.height!==h)cv.height=h;const x=cv.getContext('2d',{willReadFrequently:true});x.drawImage(src,0,0,w,h);const d=x.getImageData(0,0,w,h).data,g=new Uint8Array(w*h);for(let i=0,k=0;i<g.length;i++,k+=4)g[i]=(d[k]*.299+d[k+1]*.587+d[k+2]*.114)|0;return{g,w,h}}
+function camGeometry(mk,w,h){const P=mk.map(m=>[m.x,m.y]),d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]),top=d(P[0],P[1]),right=d(P[1],P[2]),bot=d(P[3],P[2]),left=d(P[0],P[3]),area=Math.abs(P.reduce((s,p,i)=>{const q=P[(i+1)%4];return s+(p[0]*q[1]-q[0]*p[1])},0))/2,cx=P.reduce((s,p)=>s+p[0],0)/4,cy=P.reduce((s,p)=>s+p[1],0)/4,wA=(top+bot)/2,hA=(left+right)/2,edge=.03*Math.min(w,h);
+const xs=P.map(q=>q[0]),ys=P.map(q=>q[1]);return{P,wA,hA,mod:(wA+hA)/1790,cov:area/(w*h),bw:(Math.max(...xs)-Math.min(...xs))/w,bh:(Math.max(...ys)-Math.min(...ys))/h,cx:cx/w,cy:cy/h,asp:Math.max(wA,hA)/Math.min(wA,hA),rt:top/bot,rl:left/right,inside:P.every(p=>p[0]>=edge&&p[1]>=edge&&p[0]<=w-edge&&p[1]<=h-edge)}}
+function camLight(im,P){const xs=P.map(p=>p[0]),ys=P.map(p=>p[1]),x0=Math.max(0,Math.floor(Math.min(...xs))),x1=Math.min(im.w-1,Math.ceil(Math.max(...xs))),y0=Math.max(0,Math.floor(Math.min(...ys))),y1=Math.min(im.h-1,Math.ceil(Math.max(...ys))),a=[];for(let y=y0;y<=y1;y+=3)for(let x=x0;x<=x1;x+=3)a.push(im.g[y*im.w+x]);a.sort((p,q)=>p-q);return{med:a[Math.floor(a.length*.6)]||0,sat:a.filter(v=>v>=250).length/Math.max(1,a.length)}}
+function refineMarker(im,x,y,size){const half=Math.round(size*.85)+4,x0=Math.max(0,Math.round(x)-half),x1=Math.min(im.w-1,Math.round(x)+half),y0=Math.max(0,Math.round(y)-half),y1=Math.min(im.h-1,Math.round(y)+half);let lo=255,hi=0;for(let j=y0;j<=y1;j++)for(let i=x0;i<=x1;i++){const v=im.g[j*im.w+i];if(v<lo)lo=v;if(v>hi)hi=v}if(hi-lo<40)return[x,y];const thr=(lo+hi)/2;let sw=0,sx=0,sy=0;for(let j=y0;j<=y1;j++)for(let i=x0;i<=x1;i++){const w=thr-im.g[j*im.w+i];if(w>0){sw+=w;sx+=w*i;sy+=w*j}}return sw?[sx/sw,sy/sw]:[x,y]}
+function camReadQR(im,mk,k){const ord=mk.map(m=>[m.x*k,m.y*k]);for(let t=0;t<4;t++){const r=(CAM.qrRot+t)%4,dst=[0,1,2,3].map(i=>ord[(i+r)%4]);lastQRWarp=null;const q=readQR(im,solveH(MARKERS,dst));if(q){CAM.qrRot=r;return{q,r}}}return null}
+function camVerify(c){const im=grayFromSource(c,c.width,c.height,2000,CAM.cvV),mk=findMarkers(im);if(!mk)return{ok:false,code:'markers',msg:'No se ven los 4 cuadros negros de las esquinas.'};
+const g=camGeometry(mk,im.w,im.h);if(!g.inside)return{ok:false,code:'edge',msg:'Un cuadro de esquina quedó cortado.'};if(Math.max(g.bw,g.bh)<.45)return{ok:false,code:'small',msg:'La hoja se ve muy pequeña.'};
+const lt=camLight(im,g.P);if(lt.med<70)return{ok:false,code:'dark',msg:'La foto salió muy oscura.'};
+const r=camReadQR(im,mk,1);if(!r)return{ok:false,code:'qr',msg:'No se pudo leer el código QR (¿borroso o muy lejos?).'};return{ok:true,qr:r.q,geo:g}}
+function camTick(){const v=$('camVideo');if(!camStream||CAM.verifying||v.readyState<2||!v.videoWidth)return;const now=performance.now();
+const im=grayFromSource(v,v.videoWidth,v.videoHeight,560,CAM.cvS),mk=findMarkers(im),part=(findMarkers.last||[]).filter(Boolean),info={w:im.w,h:im.h,markers:part,mk,ready:false,msg:'',qrOK:false,geo:null,geoOK:false,held:false,count:0};let mv=1;
+if(!mk){CAM.prev=null;CAM.steady=0;if(!part.length)info.msg='Apunta a la hoja, de frente: deben verse sus 4 cuadros negros.';else{const xs=part.map(m=>m.x),ys=part.map(m=>m.y),span=Math.max(Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys)),edge=part.some(m=>m.x<.06*im.w||m.y<.06*im.h||m.x>.94*im.w||m.y>.94*im.h);info.msg=part.length>=2&&span<.3*Math.max(im.w,im.h)?'Acércate a la hoja: los cuadros se ven muy pequeños.':edge?'Aleja un poco el teléfono: algún cuadro está cortado.':`Veo ${part.length} de 4 cuadros negros: centra la hoja en el recuadro.`}}
+else{const g=camGeometry(mk,im.w,im.h),diag=Math.hypot(im.w,im.h);info.geo=g;mv=CAM.prev?Math.max(...g.P.map((p,i)=>Math.hypot(p[0]-CAM.prev[i][0],p[1]-CAM.prev[i][1])))/diag:1;CAM.prev=g.P;CAM.steady=mv<.010?CAM.steady+1:0;const lt=camLight(im,g.P);
+ if(!g.inside)info.msg='Un cuadro está muy cerca del borde: aleja un poco el teléfono.';
+ else if(Math.max(g.bw,g.bh)<.6)info.msg='Acércate un poco a la hoja.';
+ else if(g.cov>.9)info.msg='Aleja un poco el teléfono.';
+ else if(Math.abs(g.cx-.5)>.13||Math.abs(g.cy-.5)>.13)info.msg='Centra la hoja en el recuadro.';
+ else if(g.asp<1.14||g.asp>1.46||g.rt<.85||g.rt>1.18||g.rl<.85||g.rl>1.18)info.msg='Sostén el teléfono de frente a la hoja, sin inclinarlo.';
+ else if(g.mod*(v.videoWidth/im.w)*3<2.6)info.msg=(im.h>=im.w)===(g.wA>g.hA)?'Gira el teléfono (o la hoja) para que la hoja quede a lo largo de la pantalla y se vea más grande.':'Acércate un poco: el código QR se ve muy pequeño.';
+ else if(lt.med<80)info.msg='Poca luz: acércate a una lámpara o ventana.';
+ else info.geoOK=true;
+ if(info.geoOK&&now-CAM.qrAt>450){CAM.qrAt=now;const med=grayFromSource(v,v.videoWidth,v.videoHeight,2000,CAM.cvM),kk=med.w/im.w,mkR=mk.map(m=>{const[rx,ry]=refineMarker(med,m.x*kk,m.y*kk,Math.sqrt(m.area)*kk);return{x:rx,y:ry}}),r=camReadQR(med,mkR,1);if(r){CAM.qr=r.q;CAM.qrOkAt=now}}
+ info.qrOK=!!CAM.qr&&now-CAM.qrOkAt<1300;
+ if(info.geoOK){if(!info.qrOK)info.msg='Enfocando el código QR… acerca un poco, espera a que enfoque o mejora la luz.';else if(!CAM.count&&CAM.steady<4)info.msg='Mantén el teléfono quieto…';else info.ready=true}
+ info.held=info.geoOK&&info.qrOK&&mv<.018}
+if(camAuto&&now>=CAM.coolUntil){
+ if(info.ready&&!CAM.count){CAM.count={t0:now,n:0};CAM.lostAt=0;camLog('count-start')}
+ if(CAM.count){if(info.held)CAM.lostAt=0;else{CAM.lostAt=CAM.lostAt||now;if(now-CAM.lostAt>450){CAM.count=null;CAM.shownN=0;camLog('count-cancel');info.msg='Se movió o se perdió la hoja: vuelve a centrarla.';info.ready=false}}
+  if(CAM.count){const el=now-CAM.count.t0,n=Math.min(3,Math.floor(el/1000)+1);if(n!==CAM.count.n){CAM.count.n=n;camBeep(n===3?880:660,90);camLog('count-'+n)}info.count=n;info.ready=true;info.msg='¡Perfecto! No te muevas…';if(el>=3000)camCapture(false)}}}
+camUi(info)}
+function camUi(info){const now=performance.now(),chip=(ok,t)=>`<span class="cchip ${ok?'ok':'bad'}">${ok?'✓':'•'} ${t}</span>`,stu=CAM.qr&&CAM.qr.student&&state.students.find(s=>cleanId(s.id)===CAM.qr.student);
+$('camStatus').textContent=CAM.failUntil>now?CAM.failMsg:info.msg||'';$('camGuide').className='cam-guide'+(info.ready?' ok':'');
+$('camChips').innerHTML=chip(!!info.mk,'Marcas '+info.markers.length+'/4')+chip(info.geoOK,'Centrada')+chip(info.qrOK,'QR')+chip(info.qrOK,'Nítida')+chip(CAM.steady>=4||!!CAM.count,'Quieta')+(info.qrOK&&stu?`<span class="cchip ok">👤 ${esc(stu.name)}</span>`:'');
+const cc=$('camCount');if(info.count){if(CAM.shownN!==info.count){cc.textContent=info.count;cc.classList.remove('hidden','pop');void cc.offsetWidth;cc.classList.add('pop');CAM.shownN=info.count}}else{cc.classList.add('hidden');CAM.shownN=0}
+camDraw(info)}
+function camDraw(info){const cv=$('camOverlay'),box=$('camBox'),v=$('camVideo'),dpr=window.devicePixelRatio||1,bw=box.clientWidth,bh=box.clientHeight;if(!bw||!v.videoWidth)return;if(cv.width!==Math.round(bw*dpr)||cv.height!==Math.round(bh*dpr)){cv.width=Math.round(bw*dpr);cv.height=Math.round(bh*dpr)}
+const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,bw,bh);const sc=Math.min(bw/v.videoWidth,bh/v.videoHeight),ox=(bw-v.videoWidth*sc)/2,oy=(bh-v.videoHeight*sc)/2,k=v.videoWidth/info.w*sc,M=p=>[ox+p[0]*k,oy+p[1]*k];
+const col=info.ready?'#22c55e':info.mk?'#f59e0b':'#ef4444';x.lineJoin='round';
+info.markers.forEach(m=>{const r=Math.sqrt(m.area)*k*.72+5,[px,py]=M([m.x,m.y]);x.lineWidth=3;x.strokeStyle=info.mk?'#22c55e':'#f59e0b';x.strokeRect(px-r,py-r,2*r,2*r)});
+if(info.mk){const P=info.geo.P.map(M);x.lineWidth=3;x.strokeStyle=col;x.setLineDash(info.ready?[]:[10,8]);x.beginPath();P.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.closePath();x.stroke();x.setLineDash([]);
+ const ord=info.mk.map(m=>[m.x,m.y]),dst=[0,1,2,3].map(i=>ord[(i+CAM.qrRot)%4]),H=solveH(MARKERS,dst),qb=[[QR_BOX.x,QR_BOX.y],[QR_BOX.x+QR_BOX.s,QR_BOX.y],[QR_BOX.x+QR_BOX.s,QR_BOX.y+QR_BOX.s],[QR_BOX.x,QR_BOX.y+QR_BOX.s]].map(([a,b])=>M(applyH(H,a,b)));
+ x.lineWidth=3;x.strokeStyle=info.qrOK?'#22c55e':'#f59e0b';x.setLineDash(info.qrOK?[]:[6,6]);x.beginPath();qb.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.closePath();x.stroke();x.setLineDash([]);
+ if(info.qrOK){x.fillStyle='#22c55e';x.font='bold 13px Arial';x.fillText('QR ✓',qb[0][0],qb[0][1]-6)}}}
+function camSetStatus(t){$('camStatus').textContent=t}
+function camLoop(){clearTimeout(camTimer);if(!camStream)return;const t=performance.now();try{camTick()}catch(e){console.warn('camTick',e)}CAM.ms=performance.now()-t;camTimer=setTimeout(camLoop,Math.max(90,CAM.ms*1.2))}
+async function camCapture(manual){if(CAM.verifying)return;const v=$('camVideo');if(!camStream||!v.videoWidth){toast('La cámara aún no está lista; espera un segundo.');return}
+CAM.verifying=true;CAM.count=null;CAM.shownN=0;$('camCount').classList.add('hidden');const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);
+camSetStatus('📸 Foto tomada: verificando marcas, QR y nitidez…');$('camBox').classList.add('flash');setTimeout(()=>$('camBox').classList.remove('flash'),200);camBeep(1200,120);camLog('capture');await new Promise(r=>setTimeout(r,40));
+const res=camVerify(c);
+if(!res.ok){camLog('verify-fail:'+res.code);CAM.verifying=false;CAM.coolUntil=performance.now()+1800;CAM.failUntil=CAM.coolUntil;CAM.failMsg='❌ '+res.msg+' Intentando de nuevo…';camSetStatus(CAM.failMsg);camBeep(220,250);return}
+camLog('verify-ok');camSetStatus('✅ Foto verificada: 4 marcas, QR y nitidez correctos.');await new Promise(r=>setTimeout(r,450));
+const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',.92));CAM.verifying=false;camClose();if(blob){toast('✅ Foto verificada. Analizando los alvéolos…');loadScanBlob(blob,true)}else toast('No se pudo guardar la imagen. Inténtalo de nuevo.')}
 async function camOpen(){if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){const m='Este navegador no permite la cámara en vivo. Usa “Tomar foto”.';toast(m);$('detectStatus').textContent=m;return}
-try{camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:3840},height:{ideal:2160}},audio:false})}
+try{camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false})}
 catch(e){const n=e&&e.name,m=n==='NotAllowedError'||n==='SecurityError'?'La cámara está bloqueada. En iPhone: Ajustes ▸ Safari ▸ Cámara ▸ Preguntar/Permitir (en la app instalada, acepta el permiso al abrirla). Mientras, usa “Tomar foto”.':n==='NotFoundError'||n==='OverconstrainedError'?'No se encontró una cámara disponible. Usa “Tomar foto”.':n==='NotReadableError'?'La cámara está ocupada por otra app. Ciérrala e inténtalo de nuevo.':'No se pudo abrir la cámara ('+(n||'error')+'). Usa “Tomar foto”.';toast(m);$('detectStatus').textContent=m;return}
-const v=$('camVideo');v.srcObject=camStream;try{await v.play()}catch(e){}$('camModal').classList.remove('hidden');document.body.style.overflow='hidden'}
-function camClose(){if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null}$('camVideo').srcObject=null;$('camModal').classList.add('hidden');document.body.style.overflow=''}
-function camShot(){const v=$('camVideo');if(!v.videoWidth){toast('La cámara aún no está lista; espera un segundo.');return}
-const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);camClose();c.toBlob(b=>{if(b)loadScanBlob(b);else toast('No se pudo capturar la imagen.')},'image/jpeg',.92)}
-$('camLive').addEventListener('click',camOpen);$('camCancel').addEventListener('click',camClose);$('camShot').addEventListener('click',camShot);document.addEventListener('visibilitychange',()=>{if(document.hidden)camClose()});
+const v=$('camVideo');v.srcObject=camStream;try{await v.play()}catch(e){}$('camModal').classList.remove('hidden');document.body.style.overflow='hidden';
+Object.assign(CAM,{prev:null,steady:0,qr:null,qrAt:0,qrOkAt:0,count:null,lostAt:0,verifying:false,coolUntil:0,failUntil:0,failMsg:'',shownN:0});CAM.log.length=0;window.__camLog=CAM.log;
+try{camAC=camAC||new(window.AudioContext||window.webkitAudioContext)();if(camAC.state==='suspended')camAC.resume().catch(()=>{})}catch(e){camAC=null}
+camSetStatus('Apunta a la hoja: deben verse sus 4 cuadros negros y el QR.');camLoop()}
+function camClose(){clearTimeout(camTimer);camTimer=null;if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null}CAM.count=null;CAM.verifying=false;$('camVideo').srcObject=null;$('camCount').classList.add('hidden');const o=$('camOverlay');o.getContext('2d').clearRect(0,0,o.width,o.height);$('camModal').classList.add('hidden');document.body.style.overflow=''}
+$('camLive').addEventListener('click',camOpen);$('camCancel').addEventListener('click',camClose);$('camShot').addEventListener('click',()=>camCapture(true));
+$('camAuto').addEventListener('click',e=>{camAuto=!camAuto;CAM.count=null;CAM.shownN=0;e.currentTarget.textContent=camAuto?'⏱️ Automático':'✋ Manual';e.currentTarget.setAttribute('aria-pressed',String(camAuto))});
+$('camSound').addEventListener('click',e=>{camSound=!camSound;e.currentTarget.textContent=camSound?'🔊':'🔇';camBeep(660,80)});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)camClose()});
 $('resetDetection').addEventListener('click',()=>{$('scanImage').value='';$('scanPreview').classList.add('hidden');$('scanOverlay').classList.add('hidden');$('scanAnswers').value='';$('scanReview').innerHTML='';$('qrInfo').innerHTML='';answersOwner=null;$('scanStudent').disabled=false;$('scanStudent').value='';scanQrStudent='';$('gradedWrap').classList.add('hidden');$('detectStatus').textContent='Selecciona una imagen para empezar.';currentScanImage=null});
 const SHEET_W=850,SHEET_H=1100,MARKERS=[[40,40],[810,40],[810,1060],[40,1060]],QR_BOX={x:628,y:44,s:156};
 let lastScan=null,answersOwner=null;
@@ -1763,15 +1834,15 @@ const b=$('laySum').querySelector('[data-usecampos]');if(b)b.onclick=()=>{state.
 function grayFromImage(img,maxSide){const s=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight)),w=Math.round(img.naturalWidth*s),h=Math.round(img.naturalHeight*s),c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,w,h);const d=x.getImageData(0,0,w,h).data,g=new Uint8Array(w*h);for(let i=0,k=0;i<g.length;i++,k+=4)g[i]=(d[k]*.299+d[k+1]*.587+d[k+2]*.114)|0;return{g,w,h}}
 function integral(a,w,h){const W=w+1,I=new Float64Array(W*(h+1));for(let y=1;y<=h;y++){let r=0;for(let x=1;x<=w;x++){r+=a[(y-1)*w+x-1];I[y*W+x]=I[(y-1)*W+x]+r}}return I}
 function boxSum(I,w,x0,y0,x1,y1){const W=w+1;return I[y1*W+x1]-I[y0*W+x1]-I[y1*W+x0]+I[y0*W+x0]}
-function findMarkers(im){const{g,w,h}=im,I=integral(g,w,h),R=Math.max(8,Math.round(w/14)),bin=new Uint8Array(w*h);
+function findMarkers(im,minFill){const{g,w,h}=im,I=integral(g,w,h),R=Math.max(8,Math.round(w/14)),bin=new Uint8Array(w*h);
 for(let y=0;y<h;y++){const y0=Math.max(0,y-R),y1=Math.min(h,y+R+1);for(let x=0;x<w;x++){const x0=Math.max(0,x-R),x1=Math.min(w,x+R+1),m=boxSum(I,w,x0,y0,x1,y1)/((x1-x0)*(y1-y0));if(g[y*w+x]<m*.65)bin[y*w+x]=1}}
 const lab=new Uint8Array(w*h),stack=new Int32Array(w*h),cands=[];
 for(let i=0;i<w*h;i++){if(!bin[i]||lab[i])continue;let sp=0,area=0,sx=0,sy=0,x0=w,x1=0,y0=h,y1=0;stack[sp++]=i;lab[i]=1;
 while(sp){const p=stack[--sp],px=p%w,py=(p-px)/w;area++;sx+=px;sy+=py;if(px<x0)x0=px;if(px>x1)x1=px;if(py<y0)y0=py;if(py>y1)y1=py;
 if(px>0&&bin[p-1]&&!lab[p-1]){lab[p-1]=1;stack[sp++]=p-1}if(px<w-1&&bin[p+1]&&!lab[p+1]){lab[p+1]=1;stack[sp++]=p+1}if(py>0&&bin[p-w]&&!lab[p-w]){lab[p-w]=1;stack[sp++]=p-w}if(py<h-1&&bin[p+w]&&!lab[p+w]){lab[p+w]=1;stack[sp++]=p+w}}
-const bw=x1-x0+1,bh=y1-y0+1;if(area<(w*.012)**2||area>w*h*.03)continue;const fill=area/(bw*bh),ar=bw/bh;if(fill>.72&&ar>.6&&ar<1.65)cands.push({x:sx/area,y:sy/area,area,fill})}
+const bw=x1-x0+1,bh=y1-y0+1;if(area<(w*.012)**2||area>w*h*.03)continue;const fill=area/(bw*bh),ar=bw/bh;if(fill>(minFill||.62)&&ar>.6&&ar<1.65)cands.push({x:sx/area,y:sy/area,area,fill})}
 const q=[[0,0],[1,0],[1,1],[0,1]].map(([qx,qy])=>cands.filter(c=>(c.x>w/2)===!!qx&&(c.y>h/2)===!!qy).sort((a,b)=>b.area*b.fill-a.area*a.fill)[0]);
-if(!q.every(Boolean))return null;const ar=q.map(m=>m.area);if(Math.max(...ar)/Math.min(...ar)>4)return null;return q}
+findMarkers.last=q;if(!q.every(Boolean))return null;const ar=q.map(m=>m.area);if(Math.max(...ar)/Math.min(...ar)>4)return null;return q}
 function solveH(src,dst){const A=[],b=[];for(let i=0;i<4;i++){const[x,y]=src[i],[u,v]=dst[i];A.push([x,y,1,0,0,0,-u*x,-u*y]);b.push(u);A.push([0,0,0,x,y,1,-v*x,-v*y]);b.push(v)}
 const n=8;for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;[A[c],A[p]]=[A[p],A[c]];[b[c],b[p]]=[b[p],b[c]];for(let r=c+1;r<n;r++){const f=A[r][c]/A[c][c];for(let k=c;k<n;k++)A[r][k]-=f*A[c][k];b[r]-=f*b[c]}}
 const h=new Array(8);for(let r=n-1;r>=0;r--){let s=b[r];for(let k=r+1;k<n;k++)s-=A[r][k]*h[k];h[r]=s/A[r][r]}return h}
@@ -1791,7 +1862,7 @@ const bits=[];let row=n-1,inc=-1;for(let col=n-1;col>0;col-=2){if(col===6)col--;
 const cw=[];for(let i=0;i+8<=bits.length;i+=8){let b=0;for(let k=0;k<8;k++)b=b<<1|bits[i+k];cw.push(b)}
 const bl=QR_BLK[v];if(!bl)return null;const blocks=bl.map(()=>[]);let idx=0;for(let i=0;i<Math.max(...bl);i++)bl.forEach((len,k)=>{if(i<len)blocks[k].push(cw[idx++])});const data=[].concat(...blocks);
 if(data[0]>>4!==4)return null;const len=((data[0]&15)<<4)|(data[1]>>4);let s='';for(let i=0;i<len;i++)s+=String.fromCharCode(((data[1+i]&15)<<4)|(data[2+i]>>4));return s}
-function readQR(im,H){const s=4,W=QR_BOX.s*s,f=warp(im,H,QR_BOX.x,QR_BOX.y,W,W,s),sr=Float32Array.from(f).sort(),thr=(sr[Math.floor(sr.length*.03)]+sr[Math.floor(sr.length*.97)])/2;
+function readQR(im,H){const s=4,W=QR_BOX.s*s,f=qrWarpKeep(warp(im,H,QR_BOX.x,QR_BOX.y,W,W,s),W),sr=Float32Array.from(f).sort(),thr=(sr[Math.floor(sr.length*.03)]+sr[Math.floor(sr.length*.97)])/2;
 for(let v=1;v<=6;v++){const n=17+4*v,cell=Math.floor(QR_BOX.s/(n+8)),M=[];for(let r=0;r<n;r++){M.push([]);for(let c=0;c<n;c++){let t=0;for(let a=-3;a<=3;a+=3)for(let b=-3;b<=3;b+=3){const x=Math.round((c+4.5)*cell*s+a),y=Math.round((r+4.5)*cell*s+b);t+=f[Math.min(W-1,Math.max(0,y))*W+Math.min(W-1,Math.max(0,x))]}M[r].push(t/9<thr?1:0)}}
 const txt=qrDecodeMatrix(M,n);if(txt){const q=parseQR(txt);if(q)return q}}return null}
 function normalizeIllum(f,w,h){const R=30,I=integral(f,w,h),a=new Float64Array(w*h),b=new Float64Array(w*h);
@@ -1834,7 +1905,7 @@ st.textContent=`Página ${page}: ${marked}/${count} respuestas detectadas · Umb
 const stuSel=state.students.find(s=>s.id===owner);$('scanSummary').innerHTML=`<div style="font-size:16px;margin-bottom:6px">${stuSel?'Hoja de <b>'+esc(stuSel.name)+'</b> · '+esc(stuSel.group):'<b style="color:#b45309">Alumno sin identificar</b>'}</div><b>Hoja alineada y corregida.</b> Se normalizó la iluminación y se corrigió la perspectiva. ${marked} de ${count} alvéolos marcados.`;
 $('scanReview').innerHTML=(warnings.length?`<div style="color:#b45309;margin-bottom:8px">⚠ ${warnings.join('<br>⚠ ')}</div>`:'')+(flags.length?`<b>Revisar ${flags.length} reactivo(s):</b>`+flags.map(f=>`<div class="bubble-row"><span><b>${qName(f.q)}</b> · ${f.flag}</span><span class="choices">${[...LET.slice(0,state.layout.opts[fieldOf(f.q-1)]),'—'].map(a=>`<button class="light" style="padding:4px 9px" data-fq="${f.q}" data-fa="${a}">${a}</button>`).join('')}</span></div>`).join(''):'Sin marcas dudosas. Verifica visualmente (verde = respuesta detectada; naranja = detectada pero tenue o dudosa).');
 $('scanReview').querySelectorAll('[data-fq]').forEach(b=>b.onclick=()=>{fixAnswer(+b.dataset.fq,b.dataset.fa);b.parentElement.querySelectorAll('button').forEach(x=>x.className='light');b.className='secondary'});
-refreshGraded();toast('Detección terminada. Se generó la hoja calificada (vista previa); revisa los reactivos marcados antes de guardar.')}
+if(flags.length>Math.max(3,count*.3))st.textContent+=' ⚠ Hay muchas marcas dudosas ('+flags.length+'): conviene repetir la foto con la cámara en vivo, con mejor luz y la hoja plana.';refreshGraded();toast('Detección terminada. Se generó la hoja calificada (vista previa); revisa los reactivos marcados antes de guardar.')}
 $('detectBubbles').addEventListener('click',detectOMR);$('sheetMode').addEventListener('change',renderPrint);
 
 
